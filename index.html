@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scorpius</title>
+    <style>
+        body { margin: 0; }
+        #canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.151.0/build/three.module.js';
+        import { GUI } from 'https://cdn.jsdelivr.net/npm/dat.gui@0.7.9/build/dat.gui.module.js';
+
+        // Create a scene
+        const scene = new THREE.Scene();
+
+        // Create a camera
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 4;
+
+        // Create a renderer and add it to the DOM with antialiasing disabled
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Debounced resize event listener
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+            }, 100);  // adjust timeout to your needs
+        });
+
+        // Load the textures
+        const textureLoader = new THREE.TextureLoader();
+        const frameTexture = textureLoader.load('Frame.png');  // Ensure this path is correct
+
+        // Create a video element
+        const video = document.createElement('video');
+        video.src = 'sb2out_1.mp4';  // Ensure this path is correct
+        video.muted = true;  // Mute the video to allow autoplay
+        video.load();
+
+        // Create a video texture
+        const videoTexture = new THREE.VideoTexture(video);
+
+        // Lens distortion shader material
+        const lensDistortionMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                tDiffuse: { value: videoTexture },
+                distortion: { value: 0.2 },  // Adjust distortion amount
+                resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D tDiffuse;
+                uniform float distortion;
+                uniform vec2 resolution;
+                varying vec2 vUv;
+                void main() {
+                    vec2 coord = (vUv - 0.5) * 2.0;
+                    vec2 distortedCoord = coord * (1.0 + distortion * length(coord));
+                    gl_FragColor = texture2D(tDiffuse, distortedCoord / 2.0 + 0.5);
+                }
+            `
+        });
+
+        // Create a mesh with plane geometry and lens distortion material for video
+        const geometry = new THREE.PlaneGeometry(4.2, 3.2);
+        const videoMesh = new THREE.Mesh(geometry, lensDistortionMaterial);
+        videoMesh.position.y = .02;
+        videoMesh.position.z = 2;
+        scene.add(videoMesh);
+
+        // Load the texture for the overlay
+        const overlayGeometry = new THREE.PlaneGeometry(0, 0);
+        const overlayMaterial = new THREE.MeshPhongMaterial({ map: frameTexture, transparent: true });
+        const overlayMesh = new THREE.Mesh(overlayGeometry, overlayMaterial);
+        overlayMesh.position.y = -0.5;
+        overlayMesh.position.z = 2.5;  // Bring the PNG closer to the camera
+        scene.add(overlayMesh);
+
+        // Create a directional light
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);  // white light
+        directionalLight.position.set(1, 1, 1).normalize();
+        scene.add(directionalLight);
+
+        // Create an ambient light
+        const ambientLight = new THREE.AmbientLight(0x006bfe);  // soft white light
+        scene.add(ambientLight);
+
+        // Advanced Lighting Setup
+        // Point Light
+        const pointLight = new THREE.PointLight(0xffffff, 1, 100);  // color, intensity, distance
+        pointLight.position.set(50, 50, 50);  // position
+        scene.add(pointLight);
+
+        // Spot Light
+        const spotLight = new THREE.SpotLight(0xffffff);  // color
+        spotLight.position.set(0, 10, 0);  // position
+        scene.add(spotLight);
+
+        // Hemisphere Light
+        const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);  // skyColor, groundColor, intensity
+        scene.add(hemisphereLight);
+
+        // GUI Setup
+        const gui = new GUI({ autoPlace: false });  // Create a new dat.GUI instance
+        document.body.appendChild(gui.domElement);  // Manually place the GUI
+
+        // Initially hide the GUI
+        gui.domElement.style.display = 'none';
+
+        // Track whether the GUI is visible
+        let guiVisible = false;
+
+        // Function to toggle GUI visibility
+        function toggleGUI() {
+            guiVisible = !guiVisible;
+            gui.domElement.style.display = guiVisible ? '' : 'none';
+        }
+
+        // Add GUI controls
+        // Point Light Controls
+        const pointLightFolder = gui.addFolder('Point Light');
+        pointLightFolder.addColor(pointLight, 'color').name('Color');
+        pointLightFolder.add(pointLight, 'intensity', 0, 2).name('Intensity');
+        pointLightFolder.add(pointLight.position, 'x', -100, 100).name('Position X');
+        pointLightFolder.add(pointLight.position, 'y', -100, 100).name('Position Y');
+        pointLightFolder.add(pointLight.position, 'z', -100, 100).name('Position Z');
+        pointLightFolder.open();  // Open folder by default
+
+        // Spot Light Controls
+        const spotLightFolder = gui.addFolder('Spot Light');
+        spotLightFolder.addColor(spotLight, 'color').name('Color');
+        spotLightFolder.add(spotLight, 'intensity', 0, 2).name('Intensity');
+        spotLightFolder.add(spotLight.position, 'x', -10, 10).name('Position X');
+        spotLightFolder.add(spotLight.position, 'y', -10, 10).name('Position Y');
+        spotLightFolder.add(spotLight.position, 'z', -10, 10).name('Position Z');
+        spotLightFolder.open();  // Open folder by default
+
+        // Hemisphere Light Controls
+        const hemisphereLightFolder = gui.addFolder('Hemisphere Light');
+        hemisphereLightFolder.addColor(hemisphereLight, 'color').name('Sky Color');
+        hemisphereLightFolder.addColor(hemisphereLight, 'groundColor').name('Ground Color');
+        hemisphereLightFolder.add(hemisphereLight, 'intensity', 0, 2).name('Intensity');
+        hemisphereLightFolder.open();  // Open folder by default
+        
+        // Directional Light Controls
+        const directionalLightFolder = gui.addFolder('Directional Light');
+        directionalLightFolder.addColor(directionalLight, 'color').name('Color');
+        directionalLightFolder.add(directionalLight, 'intensity', 0, 2).name('Intensity');
+        directionalLightFolder.add(directionalLight.position, 'x', -10, 10).name('Position X');
+        directionalLightFolder.add(directionalLight.position, 'y', -10, 10).name('Position Y');
+        directionalLightFolder.add(directionalLight.position, 'z', -10, 10).name('Position Z');
+        directionalLightFolder.open();  // Open folder by default
+
+        // Ambient Light Controls
+        const ambientLightFolder = gui.addFolder('Ambient Light');
+        ambientLightFolder.addColor(ambientLight, 'color').name('Color');
+        ambientLightFolder.add(ambientLight, 'intensity', 0, 2).name('Intensity');
+        ambientLightFolder.open();  // Open folder by default
+
+        // Render the scene
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        // Play/pause the video
+        function toggleVideoPlayback() {
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
+            }
+        }
+
+        // Rewind the video by 5 seconds
+        function rewindVideo() {
+            video.currentTime = Math.max(0, video.currentTime - 5);
+        }
+
+        // Forward the video by 5 seconds
+        function forwardVideo() {
+            video.currentTime = Math.min(video.duration, video.currentTime + 5);
+        }
+
+        // Add event listener for keypress to control the video
+        window.addEventListener('keydown', (event) => {
+            switch(event.code) {
+                case 'Space':
+                    toggleVideoPlayback();
+                    break;
+                case 'ArrowLeft':
+                    rewindVideo();
+                    break;
+                case 'ArrowRight':
+                    forwardVideo();
+                    break;
+                case 'KeyG':
+                    toggleGUI();
+                    break;
+            }
+        });
+
+        // Add event listener for clicking on the video mesh
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onMouseClick(event) {
+            // Calculate mouse position in normalized device coordinates (-1 to +1) for both components.
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the raycaster with the camera and mouse position.
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray.
+            const intersects = raycaster.intersectObjects(scene.children);
+
+            for (let i = 0; i < intersects.length; i++) {
+                if (intersects[i].object === videoMesh) {
+                    toggleVideoPlayback();
+                    break;
+                }
+            }
+        }
+
+        window.addEventListener('click', onMouseClick, false);
+
+        // Add event listener for scroll wheel to control the video
+        window.addEventListener('wheel', (event) => {
+            if (event.deltaY < 0) {
+                forwardVideo();
+            } else {
+                rewindVideo();
+            }
+        });
+
+        // Start the animation loop immediately
+        animate();
+
+        // Play the video on initial user interaction
+        document.body.addEventListener('click', () => {
+            video.play();
+        }, { once: true });
+
+    </script>
+</body>
+</html>
